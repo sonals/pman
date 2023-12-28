@@ -11,4 +11,5 @@ pman.pass
 A simple command line based password manager written in python. This is
 work-in-progress.
 TODO: Add support for encryption of the csv database
+
 -------------------------------------------------------------------------------

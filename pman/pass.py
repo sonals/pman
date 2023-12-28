@@ -11,17 +11,20 @@ This is a encfs based password manager written in python
 """
 
 import argparse
-import sys
 import csv
-import re
-import os
 import datetime
+import getpass
+import os
 import pprint
+import re
+import readline
+import shutil
+import sys
+import urllib.parse
 
 PRIVATEDB = '~/Documents/encfsdata.d'
 #PRIVATEDIR = '~/Private'
 PRIVATEDIR = '/tmp'
-PASSCSV = f'{PRIVATEDIR}/password.csv'
 
 class PasswordManager:
     """
@@ -31,8 +34,11 @@ class PasswordManager:
     """
     _SCHEMA = ['ORGANIZATION', 'URL', 'USERID', 'PASSWD', 'OTHERID1', 'OTHERID2', 'DATE',
                'KIND', 'NOTES']
+    _DATABASE = 'password.csv'
+    _PASSCSV = f'{PRIVATEDIR}/{_DATABASE}'
+    _BACKUPDIR = f'{PRIVATEDIR}/backup.d'
 
-    def __init__(self, csv_file_name = PASSCSV):
+    def __init__(self, csv_file_name = _PASSCSV):
         """ PasswordManager class constructor """
         self._csv_file_name = csv_file_name
         print(f"Initializing database from CSV file {self._csv_file_name}...")
@@ -43,61 +49,93 @@ class PasswordManager:
             for row in reader:
                 self._password_table.append(row)
         print(f"{len(self._password_table)} records found in the database")
+        self._pretty = pprint.PrettyPrinter(indent=4, sort_dicts=False)
 
-    def _get_update_csv_file_name(self):
-        """ Generate time indexed csv file name to store the updated database """
-        csv_update_file_name = os.path.splitext(self._csv_file_name)[0]
-        csv_update_file_name += '.'
-        csv_update_file_name += datetime.date.today().isoformat()
-        csv_update_file_name += '.csv'
-        return csv_update_file_name
+    def _get_backup_csv_file_name(self):
+        """ Generate date indexed csv file name to backup the database """
+        csv_backup_file_name =  PasswordManager._BACKUPDIR
+        csv_backup_file_name += f'/{PasswordManager._DATABASE}'
+        csv_backup_file_name = os.path.splitext(csv_backup_file_name)[0]
+        csv_backup_file_name += '.'
+        csv_backup_file_name += datetime.date.today().isoformat()
+        csv_backup_file_name += '.csv'
+        return csv_backup_file_name
 
-    def write_update_table(self):
-        """ Write out the updated databse to the new csv file """
-        with open(self._get_update_csv_file_name(), mode='w',
+    def write_updated_table(self):
+        """ Write out the updated database to the CSV file """
+        with open(self._csv_file_name, mode='w',
                   encoding='utf8') as csv_update_file_handle:
             writer = csv.DictWriter(csv_update_file_handle, PasswordManager._SCHEMA,
                                     restval = None, delimiter=',', quoting=csv.QUOTE_MINIMAL)
             writer.writeheader()
             for row in self._password_table:
                 writer.writerow(row)
+        print(f"Committed {len(self._password_table)} records to the CSV database file {self._csv_file_name}")
 
-    def extract_org(self, org_name):
-        """ Look up the record(s) with matching org name """
+    def extract_record(self, org_name):
+        """ Look up the record indices with matching org name """
         pattern = re.compile(org_name, re.IGNORECASE)
         org_list = []
+        index = 0
         for row in self._password_table:
             if (pattern.search(row['ORGANIZATION'])):
-                org_list.append(row)
+                org_list.append(index)
+            index += 1
         return org_list
 
-    def ask_user_and_update(self, row):
-        """ Ask the user to provide updated record fields for a org """
+    def _ask_user_and_update_record(self, index):
+        """ Ask the user to provide updated fields for the specified record """
+        row = self._password_table[index]
+        response = "no"
+        self.print_record(index)
+        response = input(f"Update record INDEX {index} for organization {row['ORGANIZATION']} [yes/no]? ")
+        if (response == "no"):
+            return
         response = "no"
         while (response != "yes"):
             for key in list(row):
-                value = input(f"{key}: [{row[key]}] ")
+                prompt = f"{key}: [{row[key]}] "
+                match key:
+                    case 'URL':
+                        value = input(prompt)
+                        uelems = urllib.parse.urlparse(value)
+                    case 'PASSWD':
+                        value = getpass.getpass(prompt)
+                    case _:
+                        value = input(prompt)
+
                 if (len(value)):
                     row[key] = value
-            pretty = pprint.PrettyPrinter(indent=4, sort_dicts=False)
-            pretty.pprint(row)
+
+            self.print_record(index)
             response = input("Commit the above to the database? [yes/no] ")
 
-    def update_org(self, org_name):
+    def update_matching_orgs(self, org_name):
         """ Either update an exisiting record or create a new record and commit to the database """
-        org_list = self.extract_org(org_name)
+        org_list = self.extract_record(org_name)
         row = None
-        if (len(org_list) > 1):
-            raise RuntimeError(f"Error: found more than one record with {org_name}")
-        if (len(org_list) == 1):
-            row = org_list[0]
-        else:
+        if (len(org_list) == 0):
+            # No existing record found, create a placeholder"
             values = ['None'] * len(PasswordManager._SCHEMA)
             row = dict((zip(PasswordManager._SCHEMA, values)))
             row['ORGANIZATION'] = org_name
             row['DATE'] = datetime.date.today().isoformat()
+            org_list.append(len(self._password_table))
             self._password_table.append(row)
-        self.ask_user_and_update(row)
+
+        for index in org_list:
+            self._ask_user_and_update_record(index)
+
+    def print_record(self, index):
+        print(f"INDEX[{index}]")
+        row = self._password_table[index]
+        self._pretty.pprint(row)
+
+    def backup(self):
+        new_csv_file_name = self._get_backup_csv_file_name()
+        os.makedirs(PasswordManager._BACKUPDIR, exist_ok = True)
+        shutil.copyfile(self._csv_file_name, new_csv_file_name)
+        print(f"Backed up the database to CSV database file {new_csv_file_name}")
 
 def parse_command_line(args):
     """ Command line parsing helper routine """
@@ -105,22 +143,24 @@ def parse_command_line(args):
     parser = argparse.ArgumentParser(description = msg, exit_on_error = False)
     parser.add_argument('-o', '--org', dest = 'oname', nargs = 1, required=True)
     parser.add_argument('-u', '--update', dest = 'update', action='store_true')
-    parser.add_argument('--file', default = PASSCSV, dest ='fname', metavar ='csvfile', nargs = 1)
+    parser.add_argument('--file', default = PasswordManager._PASSCSV, dest ='fname',
+                        metavar ='csvfile', nargs = 1)
     # strip out the argv[0]
     return parser.parse_args(args[1:])
 
 def main(args):
-    """ Main entry point function """
+    """ Main entry point """
     try:
         argtab = parse_command_line(args)
         pman = PasswordManager(argtab.fname)
-        rows = pman.extract_org(argtab.oname[0])
-        pretty = pprint.PrettyPrinter(indent=4, sort_dicts=False)
-        pretty.pprint(rows)
+        indexes = pman.extract_record(argtab.oname[0])
+        for index in indexes:
+            pman.print_record(index)
 
         if (argtab.update):
-            pman.update_org(argtab.oname[0])
-            pman.write_update_table()
+            pman.backup()
+            pman.update_matching_orgs(argtab.oname[0])
+            pman.write_updated_table()
         return 0
 
     except OSError as oerr:
