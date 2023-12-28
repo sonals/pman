@@ -24,7 +24,13 @@ PRIVATEDIR = '/tmp'
 PASSCSV = f'{PRIVATEDIR}/password.csv'
 
 class PasswordManager:
-    _SCHEMA = ['ORGANIZATION', 'URL', 'USERID', 'PASSWD', 'OTHERID1', 'OTHERID2', 'DATE', 'KIND', 'NOTES']
+    """
+    A simple command line based password manager. The passwords are stored in a CSV file
+    with the schema defined by _SCHEMA.
+    TODO: Support for encrypting the password file
+    """
+    _SCHEMA = ['ORGANIZATION', 'URL', 'USERID', 'PASSWD', 'OTHERID1', 'OTHERID2', 'DATE',
+               'KIND', 'NOTES']
 
     def __init__(self, csvFileName = PASSCSV):
         self._csvFileName = csvFileName
@@ -35,7 +41,7 @@ class PasswordManager:
             assert(reader.fieldnames == PasswordManager._SCHEMA)
             for row in reader:
                 self._passwordTable.append(row)
-        print(f"Found {len(self._passwordTable)} records")
+        print(f"Found total {len(self._passwordTable)} records in the database")
 
     def _getUpdateCSVFileName(self):
         csvUpdateFileName = os.path.splitext(self._csvFileName)[0]
@@ -60,8 +66,31 @@ class PasswordManager:
                 orgList.append(row)
         return orgList
 
+    def askUserAndUpdate(self, row):
+        response = "no"
+        while (response != "yes"):
+            for key in list(row):
+                value = input(f"{key}: [{row[key]}] ")
+                if (len(value)):
+                    row[key] = value
+            pp = pprint.PrettyPrinter(indent=4, sort_dicts=False)
+            pp.pprint(row)
+            response = input("Commit the above to the database? [yes/no] ")
 
-DATEFORMAT = ["%b %d, %y", "%m/%d/%y"]
+    def updateOrg(self, orgName):
+        orgList = self.extractOrg(orgName)
+        row = None
+        if (len(orgList) > 1):
+            raise RuntimeError(f"Error: found more than one record with {orgName}")
+        if (len(orgList) == 1):
+            row = orgList[0]
+        else:
+            values = ['None'] * len(PasswordManager._SCHEMA)
+            row = dict((zip(PasswordManager._SCHEMA, values)))
+            row['ORGANIZATION'] = orgName
+            row['DATE'] = datetime.date.today().isoformat()
+            self._passwordTable.append(row)
+        self.askUserAndUpdate(row)
 
 def parseCommandLine(args):
     msg = "Lookup the password for the organization requested"
@@ -80,9 +109,11 @@ def main(args):
         pp = pprint.PrettyPrinter(indent=4, sort_dicts=False)
         pp.pprint(rows)
 
-        pm.writeUpdateTable();
-
+        if (argtab.update):
+            pm.updateOrg(argtab.oname[0])
+            pm.writeUpdateTable()
         return 0
+
     except OSError as o:
         print(o)
         return o.errno
