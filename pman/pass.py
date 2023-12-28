@@ -14,6 +14,8 @@ import argparse
 import sys
 import csv
 import re
+import os
+import datetime
 import pprint
 
 PRIVATEDB = '~/Documents/encfsdata.d'
@@ -21,9 +23,45 @@ PRIVATEDB = '~/Documents/encfsdata.d'
 PRIVATEDIR = '/tmp'
 PASSCSV = f'{PRIVATEDIR}/password.csv'
 
-DATEFORMAT = ["%b %d, %y", "%m/%d/%y"]
+class PasswordManager:
+    _SCHEMA = ['ORGANIZATION', 'URL', 'USERID', 'PASSWD', 'OTHERID1', 'OTHERID2', 'DATE', 'KIND', 'NOTES']
 
-SCHEMA = ['ORGANIZATION', 'URL', 'USERID', 'PASSWD', 'OTHERID1', 'OTHERID2', 'DATE', 'KIND', 'NOTES']
+    def __init__(self, csvFileName = PASSCSV):
+        self._csvFileName = csvFileName
+        print(f"Initializing database from CSV file {self._csvFileName}")
+        self._passwordTable = []
+        with open(self._csvFileName, mode='r', encoding='utf8') as csvFileHandle:
+            reader = csv.DictReader(csvFileHandle, delimiter=',', quoting=csv.QUOTE_MINIMAL)
+            assert(reader.fieldnames == PasswordManager._SCHEMA)
+            for row in reader:
+                self._passwordTable.append(row)
+        print(f"Found {len(self._passwordTable)} records")
+
+    def _getUpdateCSVFileName(self):
+        csvUpdateFileName = os.path.splitext(self._csvFileName)[0]
+        csvUpdateFileName += '.'
+        csvUpdateFileName += datetime.date.today().isoformat()
+        csvUpdateFileName += '.csv'
+        return csvUpdateFileName
+
+    def writeUpdateTable(self):
+        with open(self._getUpdateCSVFileName(), mode='w', encoding='utf8') as csvUpdateFileHandle:
+            writer = csv.DictWriter(csvUpdateFileHandle, PasswordManager._SCHEMA, restval = None,
+                                    delimiter=',', quoting=csv.QUOTE_MINIMAL)
+            writer.writeheader()
+            for row in self._passwordTable:
+                writer.writerow(row)
+
+    def extractOrg(self, orgName):
+        pattern = re.compile(orgName, re.IGNORECASE)
+        orgList = []
+        for row in self._passwordTable:
+            if (pattern.search(row['ORGANIZATION'])):
+                orgList.append(row)
+        return orgList
+
+
+DATEFORMAT = ["%b %d, %y", "%m/%d/%y"]
 
 def parseCommandLine(args):
     msg = "Lookup the password for the organization requested"
@@ -34,29 +72,16 @@ def parseCommandLine(args):
     # strip out the argv[0]
     return parser.parse_args(args[1:])
 
-def extractOrg(passTab, orgName):
-    pattern = re.compile(orgName, re.IGNORECASE)
-    orgList = []
-    for row in passTab:
-        if (pattern.search(row['ORGANIZATION'])):
-            orgList.append(row)
-    return orgList
-
-def parseCSV(csvName, orgName):
-    with open(csvName, mode='r', encoding='utf8') as csvFile:
-        pp = pprint.PrettyPrinter(indent=4, sort_dicts=False)
-        passTab = csv.DictReader(csvFile, delimiter=',', quoting=csv.QUOTE_MINIMAL)
-        assert(passTab.fieldnames == SCHEMA)
-        pp.pprint(passTab.fieldnames)
-        rows = extractOrg(passTab, orgName)
-        pp.pprint(rows)
-
 def main(args):
     try:
         argtab = parseCommandLine(args)
-        print(f"Using CSV file {argtab.fname} as data base")
-        parseCSV(argtab.fname, argtab.oname[0])
-#        extractOrg(passTab, argtab.oname[0])
+        pm = PasswordManager(argtab.fname)
+        rows = pm.extractOrg(argtab.oname[0])
+        pp = pprint.PrettyPrinter(indent=4, sort_dicts=False)
+        pp.pprint(rows)
+
+        pm.writeUpdateTable();
+
         return 0
     except OSError as o:
         print(o)
