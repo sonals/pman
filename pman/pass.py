@@ -35,14 +35,14 @@ class PasswordManager:
     def __init__(self, csv_file_name = PASSCSV):
         """ PasswordManager class constructor """
         self._csv_file_name = csv_file_name
-        print(f"Initializing database from CSV file {self._csv_file_name}")
+        print(f"Initializing database from CSV file {self._csv_file_name}...")
         self._password_table = []
         with open(self._csv_file_name, mode='r', encoding='utf8') as csv_file_handle:
             reader = csv.DictReader(csv_file_handle, delimiter=',', quoting=csv.QUOTE_MINIMAL)
             assert(reader.fieldnames == PasswordManager._SCHEMA)
             for row in reader:
                 self._password_table.append(row)
-        print(f"Found total {len(self._password_table)} records in the database")
+        print(f"{len(self._password_table)} records found in the database")
 
     def _get_update_csv_file_name(self):
         """ Generate time indexed csv file name to store the updated database """
@@ -101,7 +101,7 @@ class PasswordManager:
 
 def parse_command_line(args):
     """ Command line parsing helper routine """
-    msg = "Lookup the password for the organization requested"
+    msg = "Lookup (and or update) the password for the organization requested"
     parser = argparse.ArgumentParser(description = msg, exit_on_error = False)
     parser.add_argument('-o', '--org', dest = 'oname', nargs = 1, required=True)
     parser.add_argument('-u', '--update', dest = 'update', action='store_true')
