@@ -40,6 +40,7 @@ class PasswordManager:
     def __init__(self, root_dir = PRIVATEDIR):
         """ PasswordManager class constructor """
         self._csv_file_name = f'{root_dir}/{PasswordManager._PASSCSV}'
+        self._pretty = pprint.PrettyPrinter(indent=4, sort_dicts=False)
         print(f"Initializing database from CSV file {self._csv_file_name}...")
         self._password_table = []
         with open(self._csv_file_name, mode='r', encoding='utf8') as csv_file_handle:
@@ -48,7 +49,6 @@ class PasswordManager:
             for row in reader:
                 self._password_table.append(row)
         print(f"Total {len(self._password_table)} records found")
-        self._pretty = pprint.PrettyPrinter(indent=4, sort_dicts=False)
 
     def _get_backup_csv_file_name(self):
         """ Generate date indexed CSV file name to backup the database """
@@ -98,7 +98,8 @@ class PasswordManager:
                 match key:
                     case 'URL':
                         value = input(prompt)
-                        uelems = urllib.parse.urlparse(value)
+                        # Validate the URL
+                        urllib.parse.urlparse(value)
                     case 'PASSWD':
                         value = getpass.getpass(prompt)
                     case _:
@@ -127,11 +128,13 @@ class PasswordManager:
             self._ask_user_and_update_record(index)
 
     def print_record(self, index):
+        """ Present the record to the user """
         print(f"INDEX[{index}]")
         row = self._password_table[index]
         self._pretty.pprint(row)
 
     def backup(self):
+        """ Backup the database to a date indexed backup copy """
         new_csv_file_name = self._get_backup_csv_file_name()
         os.makedirs(PasswordManager._BACKUPDIR, exist_ok = True)
         shutil.copyfile(self._csv_file_name, new_csv_file_name)
@@ -152,8 +155,8 @@ def main(args):
     try:
         argtab = parse_command_line(args)
         pman = None
-        if (argtab.rname != None):
-            pman = PasswordManager(argtab.rname)
+        if (argtab.rname):
+            pman = PasswordManager(argtab.rname[0])
         else:
             pman = PasswordManager()
         indexes = pman.extract_record(argtab.oname[0])
