@@ -22,7 +22,7 @@ import shutil
 import sys
 import urllib.parse
 
-PRIVATEDB = '~/Documents/encfsdata.d'
+#PRIVATEDB = '~/Documents/encfsdata.d'
 #PRIVATEDIR = '~/Private'
 PRIVATEDIR = '/tmp'
 
@@ -34,13 +34,12 @@ class PasswordManager:
     """
     _SCHEMA = ['ORGANIZATION', 'URL', 'USERID', 'PASSWD', 'OTHERID1', 'OTHERID2', 'DATE',
                'KIND', 'NOTES']
-    _DATABASE = 'password.csv'
-    _PASSCSV = f'{PRIVATEDIR}/{_DATABASE}'
-    _BACKUPDIR = f'{PRIVATEDIR}/backup.d'
+    _PASSCSV = 'password.csv'
+    _BACKUPDIR = 'backup.d'
 
-    def __init__(self, csv_file_name = _PASSCSV):
+    def __init__(self, root_dir = PRIVATEDIR):
         """ PasswordManager class constructor """
-        self._csv_file_name = csv_file_name
+        self._csv_file_name = f'{root_dir}/{PasswordManager._PASSCSV}'
         print(f"Initializing database from CSV file {self._csv_file_name}...")
         self._password_table = []
         with open(self._csv_file_name, mode='r', encoding='utf8') as csv_file_handle:
@@ -48,17 +47,18 @@ class PasswordManager:
             assert(reader.fieldnames == PasswordManager._SCHEMA)
             for row in reader:
                 self._password_table.append(row)
-        print(f"{len(self._password_table)} records found in the database")
+        print(f"Total {len(self._password_table)} records found")
         self._pretty = pprint.PrettyPrinter(indent=4, sort_dicts=False)
 
     def _get_backup_csv_file_name(self):
-        """ Generate date indexed csv file name to backup the database """
-        csv_backup_file_name =  PasswordManager._BACKUPDIR
-        csv_backup_file_name += f'/{PasswordManager._DATABASE}'
-        csv_backup_file_name = os.path.splitext(csv_backup_file_name)[0]
+        """ Generate date indexed CSV file name to backup the database """
+        base_ext = os.path.splitext(PasswordManager._PASSCSV)
+        csv_backup_file_name = os.path.dirname(self._csv_file_name)
+        csv_backup_file_name += f'/{PasswordManager._BACKUPDIR}'
+        csv_backup_file_name += f'/{base_ext[0]}'
         csv_backup_file_name += '.'
         csv_backup_file_name += datetime.date.today().isoformat()
-        csv_backup_file_name += '.csv'
+        csv_backup_file_name += f'{base_ext[1]}'
         return csv_backup_file_name
 
     def write_updated_table(self):
@@ -70,7 +70,7 @@ class PasswordManager:
             writer.writeheader()
             for row in self._password_table:
                 writer.writerow(row)
-        print(f"Committed {len(self._password_table)} records to the CSV database file {self._csv_file_name}")
+        print(f"Committed {len(self._password_table)} records to the CSV file {self._csv_file_name}")
 
     def extract_record(self, org_name):
         """ Look up the record indices with matching org name """
@@ -135,7 +135,7 @@ class PasswordManager:
         new_csv_file_name = self._get_backup_csv_file_name()
         os.makedirs(PasswordManager._BACKUPDIR, exist_ok = True)
         shutil.copyfile(self._csv_file_name, new_csv_file_name)
-        print(f"Backed up the database to CSV database file {new_csv_file_name}")
+        print(f"Backed up the database to CSV file {new_csv_file_name}")
 
 def parse_command_line(args):
     """ Command line parsing helper routine """
@@ -143,8 +143,7 @@ def parse_command_line(args):
     parser = argparse.ArgumentParser(description = msg, exit_on_error = False)
     parser.add_argument('-o', '--org', dest = 'oname', nargs = 1, required=True)
     parser.add_argument('-u', '--update', dest = 'update', action='store_true')
-    parser.add_argument('--file', default = PasswordManager._PASSCSV, dest ='fname',
-                        metavar ='csvfile', nargs = 1)
+    parser.add_argument('-r', '--root', dest ='rname', nargs = 1)
     # strip out the argv[0]
     return parser.parse_args(args[1:])
 
@@ -152,7 +151,11 @@ def main(args):
     """ Main entry point """
     try:
         argtab = parse_command_line(args)
-        pman = PasswordManager(argtab.fname)
+        pman = None
+        if (argtab.rname != None):
+            pman = PasswordManager(argtab.rname)
+        else:
+            pman = PasswordManager()
         indexes = pman.extract_record(argtab.oname[0])
         for index in indexes:
             pman.print_record(index)
