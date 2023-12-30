@@ -150,9 +150,11 @@ def parse_command_line(args):
     # strip out the argv[0]
     return parser.parse_args(args[1:])
 
+
 def main(args):
     """ Main entry point """
     try:
+        etest()
         argtab = parse_command_line(args)
         pman = None
         if (argtab.rname):
