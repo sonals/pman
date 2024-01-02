@@ -15,13 +15,27 @@ TODO:
 *****
 
 1. Clean up CryptIOBroker.py code base
-   * Remove random cruft
-   * Add a built-in self test
+
+   * Remove random cruft [DONE]
+   * Add a built-in self test [DONE]
    * Validate corner cases
+
 2. Define a schema for storing (and retrieving) the following in the file:
-   * random salt
+
+   * random salt [DONE]
    * user name
    * date stamp
-   * encrypted data
-3.
+   * encrypted data [DONE]
+
+3. Move to python Module hierarchy
+
+4. Add cmake based pylint and selftest and cpack based installer generation
+
+
+
 -------------------------------------------------------------------------------
+
+Install
+*******
+
+blah blah
