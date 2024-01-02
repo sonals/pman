@@ -6,7 +6,10 @@
 #
 
 """
-This is a encfs based password manager written in python
+This is a simple command line based password manager which stores users password in
+an ecrypted database. The database is organized as a CSV file with the schema defined
+by _SCHEMA. The DB is encrypted using user's password and a random salt. The salt is
+regenerated for every database update.
 
 """
 
@@ -17,10 +20,13 @@ import getpass
 import os
 import pprint
 import re
-import readline
 import shutil
 import sys
 import urllib.parse
+
+import cryptography.fernet
+
+import CryptIOBroker
 
 #PRIVATEDB = '~/Documents/encfsdata.d'
 #PRIVATEDIR = '~/Private'
@@ -34,27 +40,45 @@ class PasswordManager:
     """
     _SCHEMA = ['ORGANIZATION', 'URL', 'USERID', 'PASSWD', 'OTHERID1', 'OTHERID2', 'DATE',
                'KIND', 'NOTES']
-    _PASSCSV = 'password.csv'
+    _PASSDB = 'password.db'
     _BACKUPDIR = 'backup.d'
 
-    def __init__(self, root_dir = PRIVATEDIR):
+    def load_database(self):
+        """ Initialize the in memory database by reading from database file """
+        broker = CryptIOBroker.CryptIOBroker(self._password, 'r', self._db_file_name)
+        reader = csv.DictReader(broker, delimiter=',', quoting=csv.QUOTE_MINIMAL)
+        assert(reader.fieldnames == PasswordManager._SCHEMA)
+        for row in reader:
+            self._password_table.append(row)
+        broker.close()
+
+    def __init__(self, password, root_dir = PRIVATEDIR):
         """ PasswordManager class constructor """
-        self._csv_file_name = f'{root_dir}/{PasswordManager._PASSCSV}'
+        self._password = password
+        self._db_file_name = f'{root_dir}/{PasswordManager._PASSDB}'
         self._pretty = pprint.PrettyPrinter(indent=4, sort_dicts=False)
-        print(f"Initializing database from CSV file {self._csv_file_name}...")
+        print(f"Using database file {self._db_file_name}...")
         self._password_table = []
-        with open(self._csv_file_name, mode='r', encoding='utf8') as csv_file_handle:
-            reader = csv.DictReader(csv_file_handle, delimiter=',', quoting=csv.QUOTE_MINIMAL)
-            assert(reader.fieldnames == PasswordManager._SCHEMA)
-            for row in reader:
-                self._password_table.append(row)
+        self._dirty = False
+        self._backup_dir = os.path.dirname(self._db_file_name)
+        self._backup_dir += f'/{PasswordManager._BACKUPDIR}'
+
+        try:
+            self.load_database()
+        except(FileNotFoundError) as ferr:
+            print(f"Database {self._db_file_name} not found, creating empty database...")
+            self.write_updated_table()
+        except(cryptography.fernet.InvalidToken ) as ierr:
+            print(f"Invalid password for database {self._db_file_name}, exiting")
+            raise(ierr)
+        except Exception as eerr:
+            raise(eerr)
         print(f"Total {len(self._password_table)} records found")
 
     def _get_backup_csv_file_name(self):
         """ Generate date indexed CSV file name to backup the database """
-        base_ext = os.path.splitext(PasswordManager._PASSCSV)
-        csv_backup_file_name = os.path.dirname(self._csv_file_name)
-        csv_backup_file_name += f'/{PasswordManager._BACKUPDIR}'
+        base_ext = os.path.splitext(PasswordManager._PASSDB)
+        csv_backup_file_name = self._backup_dir
         csv_backup_file_name += f'/{base_ext[0]}'
         csv_backup_file_name += '.'
         csv_backup_file_name += datetime.date.today().isoformat()
@@ -63,14 +87,14 @@ class PasswordManager:
 
     def write_updated_table(self):
         """ Write out the updated database to the CSV file """
-        with open(self._csv_file_name, mode='w',
-                  encoding='utf8') as csv_update_file_handle:
-            writer = csv.DictWriter(csv_update_file_handle, PasswordManager._SCHEMA,
-                                    restval = None, delimiter=',', quoting=csv.QUOTE_MINIMAL)
-            writer.writeheader()
-            for row in self._password_table:
-                writer.writerow(row)
-        print(f"Committed {len(self._password_table)} records to the CSV file {self._csv_file_name}")
+        broker = CryptIOBroker.CryptIOBroker(self._password, 'w', self._db_file_name)
+        writer = csv.DictWriter(broker, PasswordManager._SCHEMA,
+                                restval = None, delimiter=',', quoting=csv.QUOTE_MINIMAL)
+        writer.writeheader()
+        for row in self._password_table:
+            writer.writerow(row)
+        print(f"Committed {len(self._password_table)} records to the CSV file {self._db_file_name}")
+        broker.close()
 
     def extract_record(self, org_name):
         """ Look up the record indices with matching org name """
@@ -107,6 +131,7 @@ class PasswordManager:
 
                 if (len(value)):
                     row[key] = value
+                    self._dirty = True
 
             self.print_record(index)
             response = input("Commit the above to the database? [yes/no] ")
@@ -136,8 +161,8 @@ class PasswordManager:
     def backup(self):
         """ Backup the database to a date indexed backup copy """
         new_csv_file_name = self._get_backup_csv_file_name()
-        os.makedirs(PasswordManager._BACKUPDIR, exist_ok = True)
-        shutil.copyfile(self._csv_file_name, new_csv_file_name)
+        os.makedirs(self._backup_dir, exist_ok = True)
+        shutil.copyfile(self._db_file_name, new_csv_file_name)
         print(f"Backed up the database to CSV file {new_csv_file_name}")
 
 def parse_command_line(args):
@@ -154,13 +179,14 @@ def parse_command_line(args):
 def main(args):
     """ Main entry point """
     try:
-        etest()
+        CryptIOBroker.CryptIOBroker.selftest()
         argtab = parse_command_line(args)
         pman = None
+        value = getpass.getpass("Password: ")
         if (argtab.rname):
-            pman = PasswordManager(argtab.rname[0])
+            pman = PasswordManager(value, argtab.rname[0])
         else:
-            pman = PasswordManager()
+            pman = PasswordManager(value)
         indexes = pman.extract_record(argtab.oname[0])
         for index in indexes:
             pman.print_record(index)

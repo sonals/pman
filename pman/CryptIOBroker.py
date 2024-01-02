@@ -4,19 +4,15 @@
 #
 
 import base64
+import io
+import os
+import pprint
+import secrets
+import tempfile
+
 import cryptography.fernet
 import cryptography.hazmat.primitives.hashes
 import cryptography.hazmat.primitives.kdf.pbkdf2
-import getpass
-import io
-import json
-import os
-import pprint
-import tempfile
-import secrets
-
-
-import csv
 
 class CryptIOBroker(io.StringIO):
     """
@@ -79,11 +75,15 @@ class CryptIOBroker(io.StringIO):
 
     @classmethod
     def selftest(cls):
-        tfile = tempfile.NamedTemporaryFile(delete=False)
-        tfile.close()
-        tname = tfile.name
-
+        """
+        This is built-in loopback selftest which creates the encrypted data base saves
+        it, reads it back and then validates the readback the data
+        """
         pretty = pprint.PrettyPrinter(indent=4, sort_dicts=False)
+        pretty.pprint(f"{cls} loopback selftest")
+        tname = None
+        with tempfile.NamedTemporaryFile(delete=False) as tfile:
+            tname = tfile.name
 
         password = secrets.token_hex(8)
 
@@ -91,56 +91,12 @@ class CryptIOBroker(io.StringIO):
         wlines = ["hello\n", "bye\n"]
         wbroker.writelines(wlines)
         wbroker.close()
+        pretty.pprint(f"Wrote {wlines}")
 
         rbroker = CryptIOBroker(password, 'r', tname)
         rlines = rbroker.readlines()
-        pretty.pprint(rlines)
         rbroker.close()
         os.unlink(tname)
+        pretty.pprint(f"Read {rlines}")
 
         assert (wlines == rlines), f"{cls} built-in selftest failed"
-
-
-_SCHEMA = ['ORGANIZATION', 'URL', 'USERID', 'PASSWD', 'OTHERID1', 'OTHERID2', 'DATE',
-           'KIND', 'NOTES']
-def etest():
-    key = cryptography.fernet.Fernet.generate_key()
-    f = cryptography.fernet.Fernet(key)
-    edata = f.encrypt(b"A really secret message. Not for prying eyes.")
-    ddata = f.decrypt(edata)
-    print(ddata)
-
-def keytest():
-    password = b"password"
-    salt = os.urandom(16)
-    kdf = cryptography.hazmat.primitives.kdf.pbkdf2.PBKDF2HMAC(
-        algorithm=cryptography.hazmat.primitives.hashes.SHA256(),
-        length=32,
-        salt=salt,
-        iterations=480000)
-
-    key = base64.urlsafe_b64encode(kdf.derive(password))
-    f = cryptography.fernet.Fernet(key)
-
-    data = None
-    with open("/tmp/password.csv", mode='r', encoding='utf8') as csv_file_handle:
-        data = csv_file_handle.read()
-
-    reader = csv.DictReader(io.StringIO(data), delimiter=',', quoting=csv.QUOTE_MINIMAL)
-    assert(reader.fieldnames == _SCHEMA)
-    pretty = pprint.PrettyPrinter(indent=4, sort_dicts=False)
-    for row in reader:
-        pretty.pprint(row)
-
-    token = f.encrypt(b"Secret message!")
-    data = f.decrypt(token)
-
-
-    output = io.StringIO()
-
-def brokertest():
-    CryptIOBroker.selftest()
-
-if __name__ == '__main__':
-    brokertest()
-    keytest()
