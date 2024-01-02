@@ -7,9 +7,15 @@ import base64
 import cryptography.fernet
 import cryptography.hazmat.primitives.hashes
 import cryptography.hazmat.primitives.kdf.pbkdf2
+import getpass
 import io
+import json
 import os
 import pprint
+import tempfile
+import secrets
+
+
 import csv
 
 class CryptIOBroker(io.StringIO):
@@ -42,17 +48,16 @@ class CryptIOBroker(io.StringIO):
         key = base64.urlsafe_b64encode(kdf.derive(password.encode('utf-8')))
         return cryptography.fernet.Fernet(key)
 
-
     def __init__(self, password, mode, filename):
         """ CryptIOBroker class constructor """
         self._mode = mode
-        self._filename = filename
+        self._dbfilename = filename
         # Only exclusive read or write operation is supported; 'rw' is not supported
-        assert (self._mode == 'r') or (self._mode == 'w'), \
-               "Either text read or text write mode is supported"
+        if (self._mode not in ('r', 'w')):
+            raise (RuntimeError("Only read text or write test mode is supported; mixed read-write mode is not supported"))
 
         if (self._mode == 'r'):
-            with open(self._filename, mode='rb') as filehandle:
+            with open(self._dbfilename, mode='rb') as filehandle:
                 self._salt = filehandle.read(16)
                 self._engine = CryptIOBroker._getengine(password, self._salt)
                 bindata = filehandle.read()
@@ -66,7 +71,7 @@ class CryptIOBroker(io.StringIO):
     def close(self):
         if (self._mode == 'w'):
             contents = super().getvalue()
-            with open(self._filename, mode='wb') as filehandle:
+            with open(self._dbfilename, mode='wb') as filehandle:
                 bindata = self._engine.encrypt(contents.encode('utf-8'))
                 filehandle.write(self._salt)
                 filehandle.write(bindata)
@@ -74,16 +79,26 @@ class CryptIOBroker(io.StringIO):
 
     @classmethod
     def selftest(cls):
-        c = CryptIOBroker("sonal-pass", 'w', cls._SELFTESTFILE)
-        c.writelines("hello\n")
-        c.writelines("bye\n")
-        c.close()
+        tfile = tempfile.NamedTemporaryFile(delete=False)
+        tfile.close()
+        tname = tfile.name
 
-        d = CryptIOBroker("sonal-pass", 'r', cls._SELFTESTFILE)
-        r = d.readlines()
         pretty = pprint.PrettyPrinter(indent=4, sort_dicts=False)
-        pretty.pprint(r)
-        d.close()
+
+        password = secrets.token_hex(8)
+
+        wbroker = CryptIOBroker(password, 'w', tname)
+        wlines = ["hello\n", "bye\n"]
+        wbroker.writelines(wlines)
+        wbroker.close()
+
+        rbroker = CryptIOBroker(password, 'r', tname)
+        rlines = rbroker.readlines()
+        pretty.pprint(rlines)
+        rbroker.close()
+        os.unlink(tname)
+
+        assert (wlines == rlines), f"{cls} built-in selftest failed"
 
 
 _SCHEMA = ['ORGANIZATION', 'URL', 'USERID', 'PASSWD', 'OTHERID1', 'OTHERID2', 'DATE',
